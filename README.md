@@ -99,7 +99,15 @@ AI 클라이언트 --stdio--> mcp_orange.exe --mcp-server --127.0.0.1+토큰--> 
 - **오류 창**: "Unexpected Error" 는 *Don't Send* 로 자동 종료, 내용은 `get_errors` 로 조회
   - **오류 리포트 외부 전송 없음**, `set_auto_dismiss(false)` 로 해제 가능
 - **개인정보**: `recent_*` 설정(파일 이력)은 노출 차단
-- **세션 종료**: AI 세션이 끝나도 Orange 유지 (미저장 작업 보호)
+- **세션 종료**: AI 세션이 끝나도 Orange 유지 (미저장 작업 보호). Orange 는 relay 가 닫지 않는다
+- **relay 수명 (Orange 에 종속)**: 클라이언트가 내리지 않아 방치된 `mcp_orange.exe --mcp-server` 가 쌓이지 않도록 스스로 종료
+  - 제어하는 Orange 가 **살아 있는 동안은 요청이 없어도 종료하지 않음** (사용자가 그 Orange 에서 직접 작업 중일 수 있음)
+  - 그 Orange 가 종료되면 유예(기본 120초) 후 종료. 유예 안에 요청이 오면 계속 실행 (Orange 를 닫고 "다시 켜줘" 하는 경우)
+  - Orange 를 한 번도 제어하지 않은 relay(`launch_orange` 없이 방치)는 10분 무요청 시 종료
+  - relay 를 띄운 클라이언트 프로세스가 사라진 경우(고아)는 Orange 가 살아 있어도 유예 후 정리 (Orange 에는 영향 없음)
+  - 종료돼도 클라이언트가 다음 호출 때 다시 띄우는 것이 전제. `initialize` 응답의 instructions 로 AI 에게 알림
+  - 환경변수: `MCP_ORANGE_IDLE_MINUTES`(기본 10, 0=끔), `MCP_ORANGE_EXIT_GRACE_SECONDS`(기본 120, 0=즉시),
+    `MCP_ORANGE_NO_ORANGE_WATCH=1`, `MCP_ORANGE_NO_PARENT_WATCH=1`, `MCP_ORANGE_CLIENT_PID`(감시할 클라이언트 PID 직접 지정)
 - **로컬 보안**: `127.0.0.1` 임의 포트 + 임의 토큰
   - 토큰 파일 `%LOCALAPPDATA%\mcp_orange\bridge.json` 은 동일 계정 프로세스가 읽기 가능 → 계정 내부는 신뢰 경계 없음
 - **데이터 폴더**: `%LOCALAPPDATA%\mcp_orange\`
@@ -117,14 +125,16 @@ python -m venv .venv
 ```
 - `.venv\Scripts\python.exe app_main.py --check`: 소스 모드 실행 (exe 와 동일 기능)
 - `build\build_exe.ps1`: `dist\mcp_orange.exe` 빌드 (PyInstaller, 전용 venv `build\.venv`) + `SHA256SUMS.txt` 생성
-- `build\release.ps1`: **릴리스 자동화** (`-DryRun` 미리보기) — README 히스토리 추가 → 커밋 → exe 빌드 → 태그 → push → [GitHub Releases](https://github.com/c0z0c/mcp_orange/releases) 업로드
-  - 조건: master 브랜치, 작업 트리 clean, `gh auth login` 완료
+- `build\release.ps1 -Message "변경 요약"`: **릴리스 자동화** (`-DryRun` 미리보기) — README 히스토리 추가 → 커밋 → exe 빌드 → 태그 → push → [GitHub Releases](https://github.com/c0z0c/mcp_orange/releases) 업로드
+  - 조건: master 브랜치, `gh auth login` 완료
+  - 별도 `Release vX` 커밋이 남지 않도록 변경 전체와 README 히스토리를 **커밋 하나**로 묶는다 (이미 커밋만 하고 push 전이면 그 커밋에 합침, 이미 push 된 커밋일 때만 `Release vX` 커밋을 따로 만듦)
 - `manage.cmd status|install|uninstall`: 개발 모드 클라이언트 등록
 - 테스트
   - `tests\test_app.py`, `test_manage.py`, `test_wizard.py`: Orange 불필요
   - `tests\matrix.py [--orange <python.exe> ...] [--exe dist\mcp_orange.exe] [--verify-readonly]`: **Orange 버전별 전체 회귀**
     - 임시 데이터 폴더 + 설정 격리 + offscreen 기동
     - `--verify-readonly`: 실행 전후 설치 폴더 스냅샷 비교
+  - `tests\test_lifecycle.py`: relay 수명 규칙(유휴/Orange 종속/유예/고아) 검증. Orange 불필요, 임시 `MCP_ORANGE_HOME` 사용
   - `tests\test_exe_cleanup.py`: 강제 종료 잔여 `_MEI*` 임시 폴더 정리 검증
   - `tests\run_all.ps1`: 개발용 Orange 대상 기존 회귀 묶음
 
@@ -141,9 +151,10 @@ python -m venv .venv
 
 ## 버전 히스토리
 
-`build\release.ps1` 이 릴리스 때 자동 추가 (최신순, 변경 내용 = 직전 태그 이후 커밋 제목). 전체 이력: `git log`
+`build\release.ps1` 이 릴리스 때 자동 추가 (최신순, 변경 내용 = 직전 태그 이후 커밋 제목, 해당 커밋에 함께 포함). 전체 이력: `git log`
 
 | 버전 | 날짜 | 변경 |
 |---|---|---|
+| 0.5.0.5 | 2026-11-22 | mcp 메모리 관리 최적화: relay 수명을 Orange에 종속(유휴·고아 자동 종료) |
 | 0.5.0.4 | 2026-11-22 | 아이콘 추가 |
 | 0.5.0.2 | 2026-11-22 | Initial commit: mcp_orange |

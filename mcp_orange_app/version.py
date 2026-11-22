@@ -65,11 +65,12 @@ def read_base() -> str:
 def _git(*args: str) -> Optional[str]:
     kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
     try:
+        # git 출력은 UTF-8 이다. text=True 만 쓰면 로케일(한국어 Windows 는 cp949)로 읽다가 한글 경로에서 디코딩이 실패한다.
         r = subprocess.run(["git", *args], cwd=str(_root()), capture_output=True, text=True,
-                           timeout=15, **kw)
+                           encoding="utf-8", errors="replace", timeout=15, **kw)
     except (OSError, subprocess.SubprocessError):
         return None
-    return r.stdout.strip() if r.returncode == 0 else None
+    return r.stdout.strip() if r.returncode == 0 and r.stdout is not None else None
 
 
 def _own_repo() -> bool:

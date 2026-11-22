@@ -13,8 +13,9 @@ from typing import Annotated, Any, Optional
 if not getattr(sys, "frozen", False):          # 개발 모드: 같은 저장소의 모듈을 찾는다
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(1, str(Path(__file__).resolve().parents[1]))
+import bridge_client  # noqa: E402
 from bridge_client import BridgeError, call  # noqa: E402
-from mcp_orange_app import launcher  # noqa: E402
+from mcp_orange_app import launcher, lifecycle  # noqa: E402
 
 from mcp.server.fastmcp import FastMCP, Image  # noqa: E402
 from pydantic import Field  # noqa: E402
@@ -307,6 +308,8 @@ def clear_workflow() -> dict:
 
 
 def main() -> None:
+    # 방치된 relay 가 쌓이지 않도록 유휴/Orange 종료/클라이언트 종료 시 스스로 끝낸다 (mcp_orange_app/lifecycle.py)
+    lifecycle.install(mcp._mcp_server, bridge_client.discovery_file)
     mcp.run()
 
 
