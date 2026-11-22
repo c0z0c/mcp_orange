@@ -102,8 +102,13 @@ def _download(info: UpdateInfo, dest: Path) -> None:
         raise UpdateError("받은 파일 크기가 다릅니다.")
 
 
-def install(info: UpdateInfo, exe: Optional[Path] = None) -> None:
-    """새 exe 를 받아 확인하고 실행 중인 exe 를 교체한다. 실패하면 원래대로 되돌리고 UpdateError."""
+def install(info: UpdateInfo, exe: Optional[Path] = None) -> int:
+    """새 exe 를 받아 확인하고 실행 중인 exe 를 교체한다. 실패하면 원래대로 되돌리고 UpdateError.
+
+    사용자가 업그레이드를 승인한 것이므로, 교체가 끝나면 옛 exe 로 실행 중인 다른 프로세스(AI 클라이언트가 띄운
+    --mcp-server 들)를 강제 종료하고 이름이 바뀐 옛 파일(mcp_orange_del.tmp)을 지운다. 이 프로세스(와 그 부트로더)는 건드리지
+    않는다. 종료된 서버는 클라이언트가 다음 호출 때 새 exe 로 다시 띄운다. 돌려주는 값은 종료한 프로세스 수.
+    """
     if not info.newer:
         raise UpdateError("받을 업데이트가 없습니다.")
     if exe is None:
@@ -111,6 +116,11 @@ def install(info: UpdateInfo, exe: Optional[Path] = None) -> None:
             raise UpdateError("exe 로 실행 중일 때만 교체할 수 있습니다. 릴리스 페이지에서 받으세요: " + info.page)
         exe = Path(sys.executable)
     fresh, old = exe.with_name(NEW_NAME), exe.with_name(OLD_NAME)
+    try:
+        from . import lifecycle
+        stale = lifecycle.pids_running_image(exe, old)    # 이름을 바꾸기 전에 찾는다
+    except Exception:  # noqa: BLE001 - 찾지 못해도 교체는 한다
+        stale = []
     try:
         _download(info, fresh)
         old.unlink(missing_ok=True)
@@ -126,6 +136,17 @@ def install(info: UpdateInfo, exe: Optional[Path] = None) -> None:
         raise UpdateError("업그레이드 실패 (쓰기 권한이 없거나 네트워크 오류): %s" % e) from e
     finally:
         fresh.unlink(missing_ok=True)
+    # 여기까지 왔으면 교체 성공: 옛 exe 로 실행 중인 다른 프로세스를 끝내 mcp_orange_del.tmp 의 잠금을 푼다.
+    # 파일 삭제는 여기서 하지 않는다: 업그레이드를 실행 중인 이 프로세스도 옛 exe 라서, 새 exe 가 시작할 때
+    # (housekeeping -> cleanup_leftovers) 이 프로세스가 끝난 뒤에 지운다.
+    killed = 0
+    if stale:
+        try:
+            from . import lifecycle
+            killed = len(stale) - len(lifecycle.terminate_pids(stale))
+        except Exception:  # noqa: BLE001 - 남은 것은 새 exe 의 정리 스레드가 재시도한다
+            pass
+    return killed
 
 
 def relaunch() -> None:
@@ -142,12 +163,23 @@ def cleanup_leftovers(wait: float = 5.0) -> None:
     exe = Path(sys.executable)
     old = exe.with_name(OLD_NAME)
     deadline = time.monotonic() + wait
-    while old.exists() and time.monotonic() < deadline:
+    while old.exists():                       # wait=0 이어도 한 번은 시도한다
         try:
             old.unlink()
-        except OSError:
+            break
+        except OSError:                       # 이전 exe 로 뜬 프로세스가 아직 쓰는 중
+            if time.monotonic() >= deadline:
+                break
             time.sleep(0.25)
     try:
         exe.with_name(NEW_NAME).unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def leftovers_exist() -> bool:
+    """이전 업그레이드가 남긴 파일(mcp_orange_del.tmp / mcp_orange_new.tmp)이 아직 있는가."""
+    if not getattr(sys, "frozen", False):
+        return False
+    exe = Path(sys.executable)
+    return exe.with_name(OLD_NAME).exists() or exe.with_name(NEW_NAME).exists()

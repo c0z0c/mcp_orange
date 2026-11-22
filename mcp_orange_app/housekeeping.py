@@ -12,6 +12,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 
 
 def cleanup_stale_extractions() -> int:
@@ -36,11 +37,19 @@ def cleanup_stale_extractions() -> int:
     return removed
 
 
+RETRY_SECONDS = 30.0
+
+
 def _cleanup_all() -> None:
     cleanup_stale_extractions()
     try:
         from . import update
         update.cleanup_leftovers()           # 이전 업그레이드가 남긴 mcp_orange_del.tmp
+        # 이전 exe 로 뜬 서버가 아직 살아 있으면 파일이 잠겨 지워지지 않는다. 서버는 오래 사는 프로세스이므로
+        # 이전 프로세스가 끝날 때까지 가끔 다시 시도한다(다음 실행까지 파일이 남지 않도록).
+        while update.leftovers_exist():
+            time.sleep(RETRY_SECONDS)
+            update.cleanup_leftovers(wait=0)
     except Exception:  # noqa: BLE001
         pass
 

@@ -234,6 +234,67 @@ update.install(good, exe=fake_exe)
 check(fake_exe.read_bytes() == PAYLOAD, "업그레이드: 새 파일로 교체")
 check((fake_exe.parent / update.OLD_NAME).read_bytes() == b"MZ-old" and not (fake_exe.parent / update.NEW_NAME).exists(),
       "이전 exe 는 _del.tmp 로 보관, 임시 파일 없음")
+# 남은 _del.tmp 정리: 이전 exe 로 뜬 프로세스가 쓰는 동안(잠김)은 못 지우고, 풀리면 지운다
+import threading  # noqa: E402
+import time  # noqa: E402
+from mcp_orange_app import housekeeping  # noqa: E402
+
+lk_dir = TMP / "locked"
+lk_dir.mkdir()
+lk_exe = lk_dir / "mcp_orange.exe"
+lk_exe.write_bytes(b"MZ-new")
+lk_old = lk_dir / update.OLD_NAME
+lk_old.write_bytes(b"MZ-old")
+_saved = (getattr(sys, "frozen", None), sys.executable, housekeeping.cleanup_stale_extractions, housekeeping.RETRY_SECONDS)
+sys.frozen, sys.executable = True, str(lk_exe)
+housekeeping.cleanup_stale_extractions = lambda: 0          # 실제 %TEMP%\_MEI* 는 건드리지 않는다
+housekeeping.RETRY_SECONDS = 0.2
+try:
+    holder = open(lk_old, "rb")                               # 이전 exe 를 실행 중인 프로세스 흉내(삭제 거부)
+    update.cleanup_leftovers(wait=0)
+    check(lk_old.exists() and update.leftovers_exist(), "이전 프로세스가 쓰는 동안 _del.tmp 는 남고 예외도 없다")
+    t = threading.Thread(target=housekeeping._cleanup_all, daemon=True)
+    t.start()
+    time.sleep(0.6)
+    check(t.is_alive() and lk_old.exists(), "잠겨 있는 동안 정리 스레드는 계속 재시도한다")
+    holder.close()                                            # 이전 프로세스 종료
+    t.join(5)
+    check(not t.is_alive() and not lk_old.exists(), "잠금이 풀리면 _del.tmp 를 지우고 스레드가 끝난다")
+    lk_old.write_bytes(b"MZ-old")
+    update.cleanup_leftovers(wait=0)
+    check(not lk_old.exists() and not update.leftovers_exist(), "wait=0 이어도 잠기지 않았으면 바로 지운다")
+finally:
+    if _saved[0] is None:
+        del sys.frozen
+    else:
+        sys.frozen = _saved[0]
+    sys.executable, housekeeping.cleanup_stale_extractions, housekeeping.RETRY_SECONDS = _saved[1:]
+# 업그레이드 승인 = 옛 exe 로 실행 중인 다른 프로세스(AI 클라이언트가 띄운 서버)를 강제 종료한다
+if sys.platform == "win32":
+    import shutil  # noqa: E402
+    kill_dir = TMP / "killold"
+    kill_dir.mkdir()
+    kill_exe = kill_dir / "mcp_orange.exe"
+    shutil.copy(os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "PING.EXE"), kill_exe)
+    olds = [_sp.Popen([str(kill_exe), "-n", "120", "127.0.0.1"], stdout=_sp.DEVNULL) for _ in range(2)]
+    other = _sp.Popen([sys.executable, "-c", "import time; time.sleep(60)"])      # 다른 exe 는 건드리면 안 된다
+    time.sleep(0.5)
+    try:
+        update._open = fake_open(release())
+        n = update.install(update.check(current="0.5.0.2"), exe=kill_exe)
+        time.sleep(0.3)
+        check(n == 2 and all(p.poll() is not None for p in olds), "업그레이드: 옛 exe 로 실행 중인 프로세스를 모두 종료 (%s개)" % n)
+        check(other.poll() is None, "업그레이드: 다른 프로그램은 종료하지 않는다")
+        check(kill_exe.read_bytes() == PAYLOAD, "업그레이드: 새 exe 로 교체됨")
+        (kill_dir / update.OLD_NAME).unlink()
+        check(not (kill_dir / update.OLD_NAME).exists(), "옛 프로세스가 끝나 _del.tmp 의 잠금이 풀려 삭제된다")
+        # 실행 중인 서버가 없으면 종료할 것도 없다
+        update._open = fake_open(release())
+        check(update.install(update.check(current="0.5.0.2"), exe=kill_exe) == 0, "실행 중인 옛 프로세스가 없으면 0개")
+    finally:
+        for p in olds + [other]:
+            if p.poll() is None:
+                p.kill()
 # 교체: 크기 불일치(잘린 다운로드) -> 원본 유지
 fake_exe.write_bytes(b"MZ-keep")
 update._open = fake_open(release(), blob=b"MZ" + b"x" * 100)

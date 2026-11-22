@@ -162,7 +162,9 @@ class Wizard(tk.Tk):
 
     def _ask_update(self, info: "update.UpdateInfo") -> None:
         if not messagebox.askyesno(
-                "새 버전", "새 버전 %s 이(가) 있습니다. (현재 %s)\n\n지금 업그레이드하고 다시 시작할까요?"
+                "새 버전", "새 버전 %s 이(가) 있습니다. (현재 %s)\n\n지금 업그레이드하고 다시 시작할까요?\n\n"
+                "AI 클라이언트가 실행 중인 이전 버전 mcp_orange 서버는 교체 후 종료됩니다 "
+                "(클라이언트가 다음 호출 때 새 버전으로 다시 시작합니다. Orange 는 종료되지 않습니다)."
                 % (info.version, version.full()), parent=self):
             return
         self._set_busy(True, "새 버전을 받는 중입니다 ...")

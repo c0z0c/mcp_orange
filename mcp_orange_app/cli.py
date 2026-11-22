@@ -148,11 +148,14 @@ def cmd_update(args) -> int:
         return 0
     if not args.yes:
         try:
+            print("실행 중인 이전 버전 mcp_orange 서버(AI 클라이언트가 띄운 것)는 교체 후 종료됩니다. Orange 는 종료되지 않습니다.")
             if input("업그레이드할까요? (y/N) ").strip().lower() != "y":
                 return 0
         except EOFError:
             return 0
-    update.install(info)
+    killed = update.install(info)
+    if killed:
+        print("실행 중이던 이전 버전 서버 %d개를 종료했습니다 (클라이언트가 다음 호출 때 다시 시작합니다)." % killed)
     print("업그레이드 완료. 다시 실행하면 %s 입니다." % info.version)
     return 0
 

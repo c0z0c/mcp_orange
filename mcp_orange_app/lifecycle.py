@@ -109,8 +109,11 @@ if os.name == "nt":
 
     _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     _nt = ctypes.WinDLL("ntdll")
-    _SYNCHRONIZE, _QUERY_LIMITED = 0x00100000, 0x1000
+    _SYNCHRONIZE, _QUERY_LIMITED, _TERMINATE = 0x00100000, 0x1000, 0x0001
     _ERROR_INVALID_PARAMETER = 87
+
+    _k32.K32EnumProcesses.argtypes = [ctypes.POINTER(wintypes.DWORD), wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    _k32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
 
     _k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     _k32.OpenProcess.restype = wintypes.HANDLE
@@ -172,6 +175,72 @@ def open_proc(pid: int) -> Optional[Proc]:
     if not h:
         return None if ctypes.get_last_error() == _ERROR_INVALID_PARAMETER else Proc(pid, None)
     return Proc(pid, h)
+
+
+def pids_running_image(*paths) -> "list[int]":
+    """주어진 exe 경로로 실행 중인 프로세스의 PID 들(이 프로세스와 그 상위 런처는 제외). 업그레이드에서 옛 서버를 찾는 데 쓴다."""
+    if os.name != "nt":
+        return []
+    want = {os.path.normcase(os.path.abspath(str(p))) for p in paths}
+    arr = (wintypes.DWORD * 8192)()
+    need = wintypes.DWORD()
+    if not _k32.K32EnumProcesses(arr, ctypes.sizeof(arr), ctypes.byref(need)):
+        return []
+    skip = _self_and_launchers()
+    found = []
+    for pid in arr[: need.value // ctypes.sizeof(wintypes.DWORD)]:
+        if pid in (0, 4) or pid in skip:
+            continue
+        h = _k32.OpenProcess(_QUERY_LIMITED, False, pid)
+        if not h:
+            continue
+        try:
+            if os.path.normcase(_image_of(h)) in want:
+                found.append(int(pid))
+        finally:
+            _k32.CloseHandle(h)
+    return found
+
+
+def _self_and_launchers() -> "set[int]":
+    """이 프로세스와, 같은 exe 로 이 프로세스를 띄운 부모(onefile 부트로더) 들."""
+    chain = {os.getpid()}
+    if os.name != "nt":
+        return chain
+    own = os.path.normcase(_image_of(_k32.GetCurrentProcess()))
+    pid = _parent_pid_of(_k32.GetCurrentProcess())
+    for _ in range(3):
+        p = open_proc(pid) if pid > 0 else None
+        if p is None or p._h is None:
+            break
+        same = os.path.normcase(_image_of(p._h)) == own
+        up = _parent_pid_of(p._h)
+        p.close()
+        if not same:
+            break
+        chain.add(pid)
+        pid = up
+    return chain
+
+
+def terminate_pids(pids, wait: float = 5.0) -> "list[int]":
+    """프로세스들을 강제 종료하고 끝나기를 기다린다. 끝내지 못한 PID 를 돌려준다."""
+    if os.name != "nt":
+        return []
+    failed = []
+    for pid in pids:
+        h = _k32.OpenProcess(_SYNCHRONIZE | _TERMINATE, False, pid)
+        if not h:
+            if ctypes.get_last_error() != _ERROR_INVALID_PARAMETER:   # 이미 없으면 성공
+                failed.append(pid)
+            continue
+        try:
+            _k32.TerminateProcess(h, 1)
+            if _k32.WaitForSingleObject(h, int(wait * 1000)) != 0:
+                failed.append(pid)
+        finally:
+            _k32.CloseHandle(h)
+    return failed
 
 
 def client_target() -> "tuple[Optional[Proc], bool]":
