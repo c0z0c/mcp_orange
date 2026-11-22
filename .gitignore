@@ -1,0 +1,34 @@
+# Python / venv
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+
+# Runtime logs (contain local absolute paths)
+*.log
+
+# Windows shortcuts / OS files
+*.lnk
+Thumbs.db
+desktop.ini
+
+# Local test output
+tests/sweep_result.json
+
+# Never commit a bundled Orange installation or secrets
+/Orange/
+bridge.json
+.env
+
+# test artefacts
+tests/_out/
+
+# build outputs
+build/.venv/
+build/work/
+dist/
+mcp_orange_app/_buildinfo.py
+*.spec.bak
+tests/*.png
+tests/*.ows
