@@ -28,6 +28,7 @@ tests/_out/
 build/.venv/
 build/work/
 dist/
+build/icon_preview.png
 mcp_orange_app/_buildinfo.py
 *.spec.bak
 tests/*.png

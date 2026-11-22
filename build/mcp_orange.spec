@@ -41,6 +41,8 @@ _vi_file = Path(SPECPATH) / "work" / "version_info.txt"
 _vi_file.parent.mkdir(parents=True, exist_ok=True)
 _vi_file.write_text(str(_vi), encoding="utf-8")
 
+ICON = ROOT / "build" / "mcp_orange.ico"      # build\make_icon.py 로 생성해 커밋해 둔 파일
+
 bridge_files = [(str(p), "orange_mcp_bridge")
                 for p in sorted((ROOT / "orange_mcp_bridge").glob("*.py"))]
 
@@ -48,7 +50,7 @@ a = Analysis(
     [str(ROOT / "app_main.py")],
     pathex=[str(ROOT), str(ROOT / "relay")],
     binaries=[],
-    datas=bridge_files,
+    datas=bridge_files + [(str(ICON), ".")],      # 마법사 창 아이콘용으로 exe 안에도 둔다
     # --mcp-server 에서 지연 import 하는 모듈들(정적 분석이 놓칠 수 있음)
     hiddenimports=["mcp_orange", "bridge_client", "mcp_orange_app.wizard", "mcp_orange_app.smoke",
                    "mcp_manage.gui", "mcp_manage.cli", "mcp_orange_app._buildinfo"],
@@ -77,4 +79,5 @@ exe = EXE(
     console=True,        # stdio MCP 서버에 필요. 더블클릭 시엔 GUI 가 뜨고 콘솔은 스스로 숨긴다.
     disable_windowed_traceback=False,
     version=str(_vi_file),
+    icon=str(ICON),
 )

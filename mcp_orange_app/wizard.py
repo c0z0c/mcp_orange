@@ -44,6 +44,7 @@ class Wizard(tk.Tk):
         self.title("Orange MCP 설정 — mcp_orange %s" % version.display())
         self.geometry("980x780")
         self.minsize(820, 640)
+        self._set_icon()
         self._q: queue.Queue = queue.Queue()
         self._targets: dict[str, launcher.Target] = {}      # tree iid -> 검사 결과
         self._selected: Optional[launcher.Target] = None
@@ -89,6 +90,14 @@ class Wizard(tk.Tk):
         self.after(100, self._pump)
         self.after(200, self.scan)
         self.after(1500, self._check_update)
+
+    def _set_icon(self) -> None:
+        """창 제목줄/작업 표시줄 아이콘. 없거나 실패해도 동작에는 영향 없다."""
+        ico = paths.repo_root() / ("mcp_orange.ico" if paths.frozen() else "build/mcp_orange.ico")
+        try:
+            self.iconbitmap(default=str(ico))
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------ 상태
     def _set_busy(self, busy: bool, text: str = "") -> None:
